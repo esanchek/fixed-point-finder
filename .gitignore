@@ -9,3 +9,7 @@ events.out.tfevents*
 *.DS_Store
 *.sublime-workspace
 *.sublime-project
+
+.ipynb_checkpoints/*
+.gitignore
+.idea/*
