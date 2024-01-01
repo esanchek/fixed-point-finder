@@ -80,9 +80,6 @@ class FixedPointFinderTF2(FixedPointFinderBase):
         super().__init__(rnn, **kwargs)
         self.tf_dtype = getattr(tf, self.dtype)
 
-        # Naming conventions assume batch_first==True.
-        self._time_dim = 1
-
     def _run_joint_optimization(self, initial_states, inputs, cond_ids=None):
         '''Finds multiple fixed points via a joint optimization over multiple
         state vectors.
@@ -109,7 +106,7 @@ class FixedPointFinderTF2(FixedPointFinderBase):
         self._print_if_verbose('\tFinding fixed points via joint optimization.')
 
         inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
-        x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True) # to(self.device)
+        x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)  # to(self.device)
 
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr_init)   # to(self.device)
         scheduler = StepLR(init_lr=self.lr_init, step_size=500, gamma=0.7)
@@ -143,15 +140,12 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             grads = tape.gradient(q_scalar, [x_bxd])
             optimizer.apply_gradients(list(zip(grads, [x_bxd])))
 
-            # scheduler.step(metrics=q_scalar)
             iter_learning_rate = scheduler(step=iter_count-1)
             optimizer.learning_rate = iter_learning_rate
 
             # convert to numpy
-#            ev_q_scalar = q_scalar.numpy()   # to cpu
-            ev_q_b = q_b.numpy()              # to_cpu
-
             dq_b = tf.math.abs(q_b - q_prev_b)
+            ev_q_b = q_b.numpy()              # to_cpu
             ev_dq_b = dq_b.numpy()            # to_cpu
 
             if self.super_verbose and np.mod(iter_count, self.n_iters_per_print_update) == 0:
@@ -177,14 +171,8 @@ class FixedPointFinderTF2(FixedPointFinderBase):
         if self.verbose:
             self._print_iter_update(iter_count, t_start, ev_q_b, ev_dq_b, iter_learning_rate, is_final=True)
 
-        # remove extra dims
-        print(f'xstar: {x_bxd}')
-        xstar = x_bxd
-        xstar = xstar.numpy()   # to_cpu?
-
-        print(f'F_xstar: {F_x_bxd}')
-        F_xstar = F_x_bxd
-        F_xstar = F_xstar.numpy()   # to_cpu?
+        xstar = x_bxd.numpy()       # to_cpu?
+        F_xstar = F_x_bxd.numpy()   # to_cpu?
 
         # Indicate same n_iters for each initialization (i.e., joint optimization)        
         n_iters = np.tile(iter_count, reps=F_xstar.shape[0])
@@ -219,13 +207,13 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             associated metadata.
         '''
 
-        return self._run_joint_optimization(initial_state, inputs, cond_id=None)
+        return self._run_joint_optimization(initial_state, inputs, cond_ids=cond_id)
 
     def _compute_recurrent_jacobians(self, fps):
         '''Computes the Jacobian of the RNN state transition function at the
         specified fixed points assuming fixed inputs for each fixed point
         (i.e., dF/dx, the partial derivatives with respect to the hidden 
-        states).
+        states). Implementend as a batch Jacobian
 
         Args:
             fps: A FixedPoints object containing the RNN states (fps.xstar)
@@ -237,141 +225,17 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             specified in fps, given the inputs in fps.
         '''
 
-        TIME_DIM = self._time_dim
         inputs_np = fps.inputs
         states_np = fps.xstar
 
-        n_batch, n_states = states_np.shape
-        n_batch, n_inputs = inputs_np.shape
+        inputs_bxd = tf.constant(inputs_np, dtype=self.tf_dtype)             # to(self.device)
+        x_bxd = tf.Variable(states_np, dtype=self.tf_dtype, trainable=True)  # to(self.device)
 
-        # For debugging and timing.
-        #
-        # n_batch = 128
-        # inputs_np = np.random.randn(n_batch,n_inputs)
-        # states_np = np.random.randn(n_batch, n_states)
+        with tf.GradientTape(persistent=True) as tape:
+            output, F_x_bxd = self.rnn(inputs_bxd, x_bxd)
 
-        # Unsqueeze to build in time dimension (a single timestep)
-        inputs_bxd = torch.from_numpy(inputs_np).to(self.torch_dtype).to(self.device)
-
-        x_bxd = torch.from_numpy(states_np)
-        x_bxd = x_bxd.to(self.torch_dtype)
-        x_bxd = x_bxd.to(self.device)
-
-        def efficient_jacobian(x_bxd, inputs_bxd):
-            '''' 
-            This numerically matches excessive_jacobian() for all i:
-            J_bxdxd[i] <--> J_bxdxbxd[i, :, i, :]
-            https://discuss.pytorch.org/t/jacobian-functional-api-batch-respecting-jacobian/84571/6
-            
-            Empirically, computation time is nearly constant wrt batch size! 
-    
-            i) This function.
-            ii) Computing all bxbxdxd elements where all off-dig elements are 0 (excessive_jacobian).
-            iii) Sequential computation using for loop along batch dim (sequential_jacobian).
-
-            b=128, d=4:
-            i) Total time: 7.37ms. 
-            ii) Total time: 254ms. 
-            iii) Total time: 324ms. 
-
-            Same for b=27, d=4:
-            i) Total time: 7.12ms. 
-            ii) Total time: 66.4ms. 
-            iii) Total time: 84.2ms.
-
-            Same for b=1, d=4 (EDGE CASE):
-            i) Total time: 22.6ms. 
-            ii) Total time: 3.19ms. 
-            iii) Total time: 5.57ms.
-            '''
-
-            inputs_bx1xd = inputs_bxd.unsqueeze(TIME_DIM)  # Used locally--ugly but necessary.
-
-            def forward_fn(x_bxd):
-                ''' Computes x(t+1) as a function of x(t) under fixed inputs. 
-                Both x(t) and x(t+1) have shape (n, n_states).
-                '''
-
-                # Unsqueeze to promote appropriate broadcasting
-                x_1xbxd = x_bxd.unsqueeze(0)
-
-                _, F_x_1xbxd = self.rnn(inputs_bx1xd, x_1xbxd)
-
-                F_x_bxd = F_x_1xbxd.squeeze(0)
-                return F_x_bxd
-
-            def batch_jacobian(f, x):
-                ''' Computes dF/dx.
-
-                Args:
-                    x: shape (n, n_states).
-                    f: Torch function that computes x(t+1) from x(t).
-
-                Returns dF/dx, shape (n, n_states, n_states).
-                '''
-
-                # This works because dF[i,:]/dx[j,:] is 0 for i!=j. 
-                # Here x and F have shape [n, n_states].
-                # I'm not sure why this is so much faster in practice, but something in the backend
-                # is smarter for this implementation than for excessive_jacobian.
-
-                f_sum = lambda x: torch.sum(f(x), axis=0)
-                J_dxbxd = jacobian(f_sum, x)
-                J_bxdxd = J_dxbxd.permute(1, 0, 2)
-                return J_bxdxd
-
-            J_bxdxd = batch_jacobian(forward_fn, x_bxd)
-            return J_bxdxd
-
-        def excessive_jacobian(x_bxd, inputs_bxd):
-            # This uses excess computation to compute derivatives across the batch,
-            # which are always 0.
-            # To confirm this, see that J_bxbxdxd[i, j, :, :]==0 for all i != j.
-
-            inputs_bx1xd = inputs_bxd.unsqueeze(TIME_DIM)  # Used locally--ugly but necessary.
-
-            def forward_fn(x_bxd):
-                # Unsqueeze to promote appropriate broadcasting
-                x_1xbxd = x_bxd.unsqueeze(0)
-
-                _, F_x_1xbxd = self.rnn(inputs_bx1xd, x_1xbxd)
-
-                F_x_bxd = F_x_1xbxd.squeeze(0)
-                return F_x_bxd
-
-            J_bxdxbxd = jacobian(forward_fn, x_bxd, create_graph=False)
-            J_bxbxdxd = J_bxdxbxd.permute(0, 2, 1, 3)
-
-            return J_bxbxdxd
-
-        def sequential_jacobian(x_bxd, inputs_bxd):
-            def forward_fn(x_d):
-                # Unsqueeze to promote appropriate broadcasting
-                x_1xbxd = x_d.unsqueeze(0).unsqueeze(1)
-                inputs_bx1xd = inputs_d.unsqueeze(0).unsqueeze(1)
-
-                _, F_x_1xbxd = self.rnn(inputs_bx1xd, x_1xbxd)
-
-                F_x_d = F_x_1xbxd.squeeze()
-                return F_x_d
-
-            J_list = []
-
-            for i in range(n_batch):
-                x_d = x_bxd[i]
-                inputs_d = inputs_bxd[i]
-                J_i = jacobian(forward_fn, x_d)
-                J_list.append(J_i)
-
-            return J_list
-
-        J_bxdxd = efficient_jacobian(x_bxd, inputs_bxd)
-
-        # J_bxbxdxd = excessive_jacobian(x_bxd, inputs_bxd)
-        J_list = sequential_jacobian(x_bxd, inputs_bxd)
-
-        J_np = J_bxdxd.detach().cpu().numpy()
-
+        J_bxdxd = tape.batch_jacobian(F_x_bxd, x_bxd)
+        J_np = J_bxdxd.numpy()
         return J_np
 
     def _compute_input_jacobians(self, fps):
