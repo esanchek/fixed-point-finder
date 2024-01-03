@@ -173,35 +173,37 @@ class FixedPointFinderTF2(FixedPointFinderBase):
 
         self._print_if_verbose('\tFinding fixed points via joint optimization.')
 
-        inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
-        x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)  # to(self.device)
+        with tf.device('GPU'):
+            inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
+            x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)  # to(self.device)
 
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr_init)   # to(self.device)
-        # scheduler = StepLR(init_lr=self.lr_init, step_size=500, gamma=0.95)  # step_size=500, gamma=0.7)
-        scheduler = ReduceLROnPlateau(init_lr=self.lr_init, factor=0.95, patience=2, cooldown=0,
-                                      min_lr=1e-5)
+            optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr_init)   # to(self.device)
+            # scheduler = StepLR(init_lr=self.lr_init, step_size=500, gamma=0.95)  # step_size=500, gamma=0.7)
+            scheduler = ReduceLROnPlateau(init_lr=self.lr_init, factor=0.95, patience=2, cooldown=0, min_lr=1e-5)
+
+            q_prev_b = tf.zeros((n_batch,), dtype=self.tf_dtype)   # device=self.device)
 
         iter_count = 1
         t_start = time.time()
-        q_prev_b = tf.zeros((n_batch,), dtype=self.tf_dtype)   # device=self.device)
 
         while True:
-            with tf.GradientTape() as tape:
-                # for each batch row: state and its associated input:
-                _, F_x_bxd = self.rnn(inputs_bxd, x_bxd)
-                dx_bxd = x_bxd - F_x_bxd
-                # for each batch row: 1/2 (x - Fx)^2
-                q_b = 0.5 * tf.reduce_sum(tf.square(dx_bxd), axis=1)
-                # mean for all batch
-                q_scalar = tf.math.reduce_mean(q_b)
+            with tf.device('GPU'):
+                with tf.GradientTape() as tape:
+                    # for each batch row: state and its associated input:
+                    _, F_x_bxd = self.rnn(inputs_bxd, x_bxd)
+                    dx_bxd = x_bxd - F_x_bxd
+                    # for each batch row: 1/2 (x - Fx)^2
+                    q_b = 0.5 * tf.reduce_sum(tf.square(dx_bxd), axis=1)
+                    # mean for all batch
+                    q_scalar = tf.math.reduce_mean(q_b)
 
-            # optimizer step vs joint q: q_scalar
-            grads = tape.gradient(q_scalar, [x_bxd])
-            optimizer.apply_gradients(list(zip(grads, [x_bxd])))
+                # optimizer step vs joint q: q_scalar
+                grads = tape.gradient(q_scalar, [x_bxd])
+                optimizer.apply_gradients(zip(grads, [x_bxd]))
 
-            scheduler.metric = q_scalar
-            iter_learning_rate = scheduler(step=iter_count-1)
-            optimizer.learning_rate = iter_learning_rate
+                scheduler.metric = q_scalar
+                iter_learning_rate = scheduler(step=iter_count-1)
+                optimizer.learning_rate = iter_learning_rate
 
             # convert to numpy
             dq_b = tf.math.abs(q_b - q_prev_b)
