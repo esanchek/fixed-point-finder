@@ -20,8 +20,8 @@ from copy import deepcopy
 
 from FixedPoints import FixedPoints
 
-class FixedPointFinderBase(object):
 
+class FixedPointFinderBase(object):
     _default_hps = {
         'tol_q': 1e-12,
         'tol_dq': 1e-20,
@@ -40,7 +40,7 @@ class FixedPointFinderBase(object):
         'verbose': True,
         'super_verbose': False,
         'n_iters_per_print_update': 100,
-        }
+    }
 
     @classmethod
     def default_hps(cls):
@@ -61,24 +61,23 @@ class FixedPointFinderBase(object):
         return deepcopy(cls._default_hps)
 
     def __init__(self, rnn_cell,
-        tol_q=_default_hps['tol_q'],
-        tol_dq=_default_hps['tol_dq'],
-        max_iters=_default_hps['max_iters'],
-        method=_default_hps['method'],
-        do_rerun_q_outliers=_default_hps['do_rerun_q_outliers'],
-        outlier_q_scale=_default_hps['outlier_q_scale'],
-        do_exclude_distance_outliers=\
-            _default_hps['do_exclude_distance_outliers'],
-        outlier_distance_scale=_default_hps['outlier_distance_scale'],
-        tol_unique=_default_hps['tol_unique'],
-        max_n_unique=_default_hps['max_n_unique'],
-        do_compute_jacobians=_default_hps['do_compute_jacobians'],
-        do_decompose_jacobians=_default_hps['do_decompose_jacobians'],
-        dtype=_default_hps['dtype'],
-        random_seed=_default_hps['random_seed'],
-        verbose=_default_hps['verbose'],
-        super_verbose=_default_hps['super_verbose'],
-        n_iters_per_print_update=_default_hps['n_iters_per_print_update']):
+                 tol_q=_default_hps['tol_q'],
+                 tol_dq=_default_hps['tol_dq'],
+                 max_iters=_default_hps['max_iters'],
+                 method=_default_hps['method'],
+                 do_rerun_q_outliers=_default_hps['do_rerun_q_outliers'],
+                 outlier_q_scale=_default_hps['outlier_q_scale'],
+                 do_exclude_distance_outliers=_default_hps['do_exclude_distance_outliers'],
+                 outlier_distance_scale=_default_hps['outlier_distance_scale'],
+                 tol_unique=_default_hps['tol_unique'],
+                 max_n_unique=_default_hps['max_n_unique'],
+                 do_compute_jacobians=_default_hps['do_compute_jacobians'],
+                 do_decompose_jacobians=_default_hps['do_decompose_jacobians'],
+                 dtype=_default_hps['dtype'],
+                 random_seed=_default_hps['random_seed'],
+                 verbose=_default_hps['verbose'],
+                 super_verbose=_default_hps['super_verbose'],
+                 n_iters_per_print_update=_default_hps['n_iters_per_print_update']):
         '''Creates a FixedPointFinder object.
 
         Optimization terminates once every initialization satisfies one or
@@ -199,9 +198,8 @@ class FixedPointFinderBase(object):
     # Primary exposed functions ***********************************************
     # *************************************************************************
 
-    def sample_inputs_and_states(self, inputs, state_traj, n_inits,
-        valid_bxt=None,
-        noise_scale=0.0):
+    def sample_inputs_and_states(self, inputs: np.ndarray, state_traj_bxtxd: np.ndarray,
+                                 n_inits: int, valid_bxt=None, noise_scale: float = 0.0):
         '''Draws random paired samples from the RNN's inputs and hidden-state
         trajectories. Sampled states (but not inputs) can optionally be
         corrupted by independent and identically distributed (IID) Gaussian
@@ -212,7 +210,7 @@ class FixedPointFinderBase(object):
             inputs: [n_batch x n_time x n_inputs] numpy array containing input
             sequences to the RNN.
 
-            state_traj: [n_batch x n_time x n_states] numpy array containing
+            state_traj_bxtxd: [n_batch x n_time x n_states] numpy array containing
             trajectories of the RNN hidden state, given inputs.
 
             n_inits: int specifying the number of sampled states to return.
@@ -236,12 +234,12 @@ class FixedPointFinderBase(object):
         Raises:
             ValueError if noise_scale is negative.
         '''
+
         [n_batch, n_time, n_states] = state_traj_bxtxd.shape
         n_inputs = inputs.shape[2]
 
         valid_bxt = self._get_valid_mask(n_batch, n_time, valid_bxt=valid_bxt)
-        trial_indices, time_indices = \
-            self._sample_trial_and_time_indices(valid_bxt, n_inits)
+        trial_indices, time_indices = self._sample_trial_and_time_indices(valid_bxt, n_inits)
 
         # Draw random samples from inputs and state trajectories
         input_samples = np.zeros([n_inits, n_inputs])
@@ -249,31 +247,31 @@ class FixedPointFinderBase(object):
         for init_idx in range(n_inits):
             trial_idx = trial_indices[init_idx]
             time_idx = time_indices[init_idx]
-            input_samples[init_idx,:] = inputs[trial_idx,time_idx,:]
-            state_samples[init_idx,:] = state_traj_bxtxd[trial_idx,time_idx,:]
+            input_samples[init_idx, :] = inputs[trial_idx, time_idx, :]
+            state_samples[init_idx, :] = state_traj_bxtxd[trial_idx, time_idx, :]
 
         # Add IID Gaussian noise to the sampled states
         state_samples = self._add_gaussian_noise(
             state_samples, noise_scale)
 
-        assert not np.any(np.isnan(state_samples)),\
+        assert not np.any(np.isnan(state_samples)), \
             'Detected NaNs in sampled states. Check state_traj and valid_bxt.'
 
-        assert not np.any(np.isnan(input_samples)),\
+        assert not np.any(np.isnan(input_samples)), \
             'Detected NaNs in sampled inputs. Check inputs and valid_bxt.'
 
         return input_samples, state_samples
 
-    def sample_states(self, state_traj, n_inits,
-        valid_bxt=None,
-        noise_scale=0.0):
+    def sample_states(self, state_traj_bxtxd, n_inits,
+                      valid_bxt=None,
+                      noise_scale=0.0):
         '''Draws random samples from trajectories of the RNN state. Samples
         can optionally be corrupted by independent and identically distributed
         (IID) Gaussian noise. These samples are intended to be used as initial
         states for fixed point optimizations.
 
         Args:
-            state_traj: [n_batch x n_time x n_states] numpy array containing
+            state_traj_bxtxd: [n_batch x n_time x n_states] numpy array containing
             example trajectories of the RNN state.
 
             n_inits: int specifying the number of sampled states to return.
@@ -294,8 +292,6 @@ class FixedPointFinderBase(object):
             ValueError if noise_scale is negative.
         '''
 
-        state_traj_bxtxd = state_traj
-
         [n_batch, n_time, n_states] = state_traj_bxtxd.shape
 
         valid_bxt = self._get_valid_mask(n_batch, n_time, valid_bxt=valid_bxt)
@@ -307,12 +303,12 @@ class FixedPointFinderBase(object):
         for init_idx in range(n_inits):
             trial_idx = trial_indices[init_idx]
             time_idx = time_indices[init_idx]
-            states[init_idx,:] = state_traj_bxtxd[trial_idx, time_idx]
+            states[init_idx, :] = state_traj_bxtxd[trial_idx, time_idx]
 
         # Add IID Gaussian noise to the sampled states
         states = self._add_gaussian_noise(states, noise_scale)
 
-        assert not np.any(np.isnan(states)),\
+        assert not np.any(np.isnan(states)), \
             'Detected NaNs in sampled states. Check state_traj and valid_bxt.'
 
         return states
@@ -350,12 +346,12 @@ class FixedPointFinderBase(object):
                                'from %d initial states.\n' % n)
 
         if inputs.shape[0] == 1:
-            inputs_nxd = np.tile(inputs, [n, 1]) # safe, even if n == 1.
+            inputs_nxd = np.tile(inputs, [n, 1])  # safe, even if n == 1.
         elif inputs.shape[0] == n:
             inputs_nxd = inputs
         else:
             raise ValueError('Incompatible inputs shape: %s.' %
-                str(inputs.shape))
+                             str(inputs.shape))
 
         if self.method == 'sequential':
             all_fps = self._run_sequential_optimizations(
@@ -371,7 +367,7 @@ class FixedPointFinderBase(object):
         unique_fps = all_fps.get_unique()
 
         self._print_if_verbose('\tIdentified %d unique fixed points.' %
-            unique_fps.n)
+                               unique_fps.n)
 
         if self.do_exclude_distance_outliers:
             unique_fps = \
@@ -390,7 +386,7 @@ class FixedPointFinderBase(object):
         # computational savings when not all are needed.)
         if unique_fps.n > self.max_n_unique:
             self._print_if_verbose('\tRandomly selecting %d unique '
-                'fixed points to keep.' % self.max_n_unique)
+                                   'fixed points to keep.' % self.max_n_unique)
             max_n_unique = int(self.max_n_unique)
             idx_keep = self.rng.choice(
                 unique_fps.n, max_n_unique, replace=False)
@@ -400,12 +396,12 @@ class FixedPointFinderBase(object):
             if unique_fps.n > 0:
 
                 self._print_if_verbose('\tComputing recurrent Jacobian at %d '
-                    'unique fixed points.' % unique_fps.n)
+                                       'unique fixed points.' % unique_fps.n)
                 dFdx = self._compute_recurrent_jacobians(unique_fps)
                 unique_fps.J_xstar = dFdx
 
                 self._print_if_verbose('\tComputing input Jacobian at %d '
-                    'unique fixed points.' % unique_fps.n)
+                                       'unique fixed points.' % unique_fps.n)
                 dFdu = self._compute_input_jacobians(unique_fps)
                 unique_fps.dFdu = dFdu
 
@@ -419,7 +415,7 @@ class FixedPointFinderBase(object):
 
                 unique_fps.J_xstar = unique_fps._alloc_nan(shape_dFdx)
                 unique_fps.dFdu = unique_fps._alloc_nan(shape_dFdu)
-            
+
             if self.do_decompose_jacobians:
                 # self._test_decompose_jacobians(unique_fps, J_np, J_tf)
                 unique_fps.decompose_jacobians(str_prefix='\t')
@@ -549,20 +545,20 @@ class FixedPointFinderBase(object):
 
         for init_idx in range(n_inits):
 
-            initial_states_i = initial_states[init_idx:(init_idx+1)]
-            inputs_i = inputs[index]
+            initial_states_i = initial_states[init_idx:(init_idx + 1)]
+            inputs_i = inputs[init_idx:(init_idx + 1)]
 
             if cond_ids is None:
                 colors_i = None
             else:
-                colors_i = cond_ids[index]
+                colors_i = cond_ids[init_idx]
 
             if is_fresh_start:
                 self._print_if_verbose('\n\tInitialization %d of %d:' %
-                    (init_idx+1, n_inits))
+                                       (init_idx + 1, n_inits))
             else:
                 self._print_if_verbose('\n\tOutlier %d of %d (q=%.2e):' %
-                    (init_idx+1, n_inits, q_prior[init_idx]))
+                                       (init_idx + 1, n_inits, q_prior[init_idx]))
 
             fps[init_idx] = self._run_single_optimization(
                 initial_states_i, inputs_i, cond_id=colors_i)
@@ -585,7 +581,7 @@ class FixedPointFinderBase(object):
         '''
 
         (trial_idx, time_idx) = np.nonzero(valid_bxt)
-        max_sample_index = len(trial_idx) # same as len(time_idx)
+        max_sample_index = len(trial_idx)  # same as len(time_idx)
         sample_indices = self.rng.randint(max_sample_index, size=n)
 
         return trial_idx[sample_indices], time_idx[sample_indices]
@@ -611,7 +607,7 @@ class FixedPointFinderBase(object):
         else:
 
             assert (valid_bxt.shape[0] == n_batch and
-                valid_bxt.shape[1] == n_time),\
+                    valid_bxt.shape[1] == n_time), \
                 ('valid_bxt.shape should be %s, but is %s'
                  % ((n_batch, n_time), valid_bxt.shape))
 
@@ -639,7 +635,7 @@ class FixedPointFinderBase(object):
 
         # Add IID Gaussian noise
         if noise_scale == 0.0:
-            return data # no noise to add
+            return data  # no noise to add
         if noise_scale > 0.0:
             return data + noise_scale * self.rng.randn(*data.shape)
         elif noise_scale < 0.0:
@@ -742,12 +738,12 @@ class FixedPointFinderBase(object):
         init_non_outlier_idx = np.where(scaled_init_dists < dist_thresh)[0]
         n_init_non_outliers = init_non_outlier_idx.size
         print('\t\tinitial_states: %d outliers detected (of %d).'
-            % (n_inits - n_init_non_outliers, n_inits))
+              % (n_inits - n_init_non_outliers, n_inits))
 
         fps_non_outlier_idx = np.where(scaled_fps_dists < dist_thresh)[0]
         n_fps_non_outliers = fps_non_outlier_idx.size
         print('\t\tfixed points: %d outliers detected (of %d).'
-            % (n_fps - n_fps_non_outliers, n_fps))
+              % (n_fps - n_fps_non_outliers, n_fps))
 
         return fps_non_outlier_idx
 
@@ -834,7 +830,7 @@ class FixedPointFinderBase(object):
 
             return idx_outliers
 
-        outlier_min_q = np.median(fps.qstar)*self.outlier_q_scale
+        outlier_min_q = np.median(fps.qstar) * self.outlier_q_scale
         idx_outliers = outlier_update(fps)
 
         if len(idx_outliers) == 0:
@@ -846,7 +842,7 @@ class FixedPointFinderBase(object):
         outliers.
         '''
         if self.method == 'joint':
-            N_ROUNDS = 0 # consider making this a hyperparameter
+            N_ROUNDS = 0  # consider making this a hyperparameter
             for round in range(N_ROUNDS):
 
                 fps = perform_outlier_optimization(fps, 'joint')
@@ -858,7 +854,7 @@ class FixedPointFinderBase(object):
         # Always perform a round of sequential optimizations on any (remaining)
         # "outliers".
         fps = perform_outlier_optimization(fps, 'sequential')
-        outlier_update(fps) # For print output only
+        outlier_update(fps)  # For print output only
 
         return fps
 
@@ -900,6 +896,6 @@ class FixedPointFinderBase(object):
         print('avg iter time = %.2e sec' % avg_iter_time, end='')
 
         if is_final:
-            print('') # Just for the endline
+            print('')  # Just for the endline
         else:
             print('.')

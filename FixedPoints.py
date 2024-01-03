@@ -548,6 +548,7 @@ class FixedPoints(object):
         '''
 
         if self.has_decomposed_jacobians:
+            print('me sale que ya tiene descompuestos los jacobianos')
             print('%sJacobians have already been decomposed, '
                 'not repeating.' % str_prefix)
             return
@@ -571,7 +572,7 @@ class FixedPoints(object):
                 e_vals_unsrt = self._alloc_nan(
                     (n, n_states), dtype=self.dtype_complex)
                 e_vecs_unsrt = self._alloc_nan(
-                    (n, n_states, n_states), dtype=dtype_complex)
+                    (n, n_states, n_states), dtype=self.dtype_complex)
 
                 e_vals_unsrt[valid_J_idx], e_vecs_unsrt[valid_J_idx] = \
                     np.linalg.eig(self.J_xstar[valid_J_idx])
@@ -792,7 +793,11 @@ class FixedPoints(object):
         if not hasattr(self, 'eigval_J_xstar'):
             return False
 
-        return self.eigval_J_xstar is not None
+        # return self.eigval_J_xstar is not None
+        if self.eigval_J_xstar is None:
+            return False
+
+        return not all(np.isnan(self.eigval_J_xstar[:, 0]))
 
     @property
     def kwargs(self):
