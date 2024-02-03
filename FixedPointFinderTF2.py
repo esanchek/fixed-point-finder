@@ -102,9 +102,9 @@ class FixedPointFinderTF2(FixedPointFinderBase):
         # scheduler = StepLR(init_lr=self.lr_init, step_size=5000, gamma=0.9)  # step_size=500, gamma=0.7)
         # scheduler = ReduceLROnPlateau(init_lr=self.lr_init, factor=0.95, patience=2, cooldown=0, min_lr=1e-7,
         #                              min_delta=1e-6)
-        scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=self.lr_init,
-                                                                   decay_steps=1000,
-                                                                   decay_rate=0.2)
+        # scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=self.lr_init,
+        #                                                           decay_steps=1000,
+        #                                                           decay_rate=0.2)
 
         q_prev_b = tf.zeros((n_batch,), dtype=self.tf_dtype)   # device=self.device)
 
@@ -125,9 +125,10 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             grads = tape.gradient(q_scalar, [x_bxd])
             optimizer.apply_gradients(zip(grads, [x_bxd]))
 
-            scheduler.metric = q_scalar
-            iter_learning_rate = scheduler(step=iter_count-1)
-            optimizer.learning_rate = iter_learning_rate
+            # scheduler.metric = q_scalar
+            # iter_learning_rate = scheduler(step=iter_count-1)
+            iter_learning_rate = self.lr_init
+            # optimizer.learning_rate = iter_learning_rate
 
             # convert to numpy
             dq_b = tf.math.abs(q_b - q_prev_b)
