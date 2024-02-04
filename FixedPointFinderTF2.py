@@ -118,6 +118,8 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             iter_count = 1
             t_start = time.time()
 
+            print(inputs_bxd.device, x_bxd.device, optimizer.device, q_prev_b.device)
+
             while True:
                 with tf.GradientTape() as tape:
                     # for each batch row: state and its associated input:
