@@ -95,65 +95,72 @@ class FixedPointFinderTF2(FixedPointFinderBase):
 
         self._print_if_verbose('\tFinding fixed points via joint optimization.')
 
-        inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
-        x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)  # to(self.device)
+        gpu = tf.config.list_physical_devices('GPU')
+        if gpu:
+            device = gpu[0].name
+        else:
+            device = tf.config.list_physical_devices('CPU')[0].name
 
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr_init)   # to(self.device)
-        # scheduler = StepLR(init_lr=self.lr_init, step_size=5000, gamma=0.9)  # step_size=500, gamma=0.7)
-        # scheduler = ReduceLROnPlateau(init_lr=self.lr_init, factor=0.95, patience=2, cooldown=0, min_lr=1e-7,
-        #                              min_delta=1e-6)
-        # scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=self.lr_init,
-        #                                                           decay_steps=1000,
-        #                                                           decay_rate=0.2)
+        with tf.device(device):
+            inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
+            x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)
 
-        q_prev_b = tf.zeros((n_batch,), dtype=self.tf_dtype)   # device=self.device)
+            optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr_init)   # to(self.device)
+            # scheduler = StepLR(init_lr=self.lr_init, step_size=5000, gamma=0.9)  # step_size=500, gamma=0.7)
+            # scheduler = ReduceLROnPlateau(init_lr=self.lr_init, factor=0.95, patience=2, cooldown=0, min_lr=1e-7,
+            #                              min_delta=1e-6)
+            scheduler = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=self.lr_init,
+                                                                       decay_steps=1000,
+                                                                       decay_rate=0.2)
 
-        iter_count = 1
-        t_start = time.time()
+            q_prev_b = tf.zeros((n_batch,), dtype=self.tf_dtype)   # device=self.device)
 
-        while True:
-            with tf.GradientTape() as tape:
-                # for each batch row: state and its associated input:
-                _, F_x_bxd = self.rnn(inputs_bxd, x_bxd)
-                dx_bxd = x_bxd - F_x_bxd
-                # for each batch row: 1/2 (x - Fx)^2
-                q_b = 0.5 * tf.reduce_sum(tf.square(dx_bxd), axis=1)
-                # mean for all batch
-                q_scalar = tf.math.reduce_mean(q_b)
+            iter_count = 1
+            t_start = time.time()
 
-            # optimizer step vs joint q: q_scalar
-            grads = tape.gradient(q_scalar, [x_bxd])
-            optimizer.apply_gradients(zip(grads, [x_bxd]))
+            while True:
+                with tf.GradientTape() as tape:
+                    # for each batch row: state and its associated input:
+                    _, F_x_bxd = self.rnn(inputs_bxd, x_bxd)
+                    dx_bxd = x_bxd - F_x_bxd
+                    # for each batch row: 1/2 (x - Fx)^2
+                    q_b = 0.5 * tf.reduce_sum(tf.square(dx_bxd), axis=1)
+                    # mean for all batch
+                    q_scalar = tf.math.reduce_mean(q_b)
 
-            # scheduler.metric = q_scalar
-            # iter_learning_rate = scheduler(step=iter_count-1)
-            iter_learning_rate = self.lr_init
-            # optimizer.learning_rate = iter_learning_rate
+                # optimizer step vs joint q: q_scalar
+                grads = tape.gradient(q_scalar, [x_bxd])
+                optimizer.apply_gradients(zip(grads, [x_bxd]))
 
-            # convert to numpy
-            dq_b = tf.math.abs(q_b - q_prev_b)
-            ev_q_b = q_b.numpy()              # to_cpu
-            ev_dq_b = dq_b.numpy()            # to_cpu
+                scheduler.metric = q_scalar
+                iter_learning_rate = scheduler(step=iter_count-1)
+                # iter_learning_rate = self.lr_init
+                optimizer.learning_rate = iter_learning_rate
 
-            if self.super_verbose and np.mod(iter_count, self.n_iters_per_print_update) == 0:
-                self._print_iter_update(iter_count, t_start, ev_q_b, ev_dq_b, iter_learning_rate)
+                # convert to numpy
+                dq_b = tf.math.abs(q_b - q_prev_b)
+                ev_q_b = q_b.numpy()              # to_cpu
+                ev_dq_b = dq_b.numpy()            # to_cpu
 
-            # stop condition 1: (tolerances) in all batch rows tolerance has been reached
-            if iter_count > 1 and np.all(np.logical_or(ev_dq_b < self.tol_dq * iter_learning_rate,
-                                                       ev_q_b < self.tol_q)):
-                '''Here dq is scaled by the learning rate. Otherwise very small steps due to very 
-                small learning rates would spuriously indicate convergence. This scaling is roughly 
-                equivalent to measuring the gradient norm.'''
-                self._print_if_verbose('\tOptimization complete to desired tolerance.')
-                break
+                if self.super_verbose and np.mod(iter_count, self.n_iters_per_print_update) == 0:
+                    self._print_iter_update(iter_count, t_start, ev_q_b, ev_dq_b, iter_learning_rate)
 
-            # stop condition 2: reached max num iterations
-            if iter_count + 1 > self.max_iters:
-                self._print_if_verbose('\tMaximum iteration count reached. Terminating.')
-                break
+                # stop condition 1: (tolerances) in all batch rows tolerance has been reached
+                if iter_count > 1 and np.all(np.logical_or(ev_dq_b < self.tol_dq * iter_learning_rate,
+                                                           ev_q_b < self.tol_q)):
+                    '''Here dq is scaled by the learning rate. Otherwise very small steps due to very 
+                    small learning rates would spuriously indicate convergence. This scaling is roughly 
+                    equivalent to measuring the gradient norm.'''
+                    self._print_if_verbose('\tOptimization complete to desired tolerance.')
+                    break
 
-            q_prev_b = q_b
-            iter_count += 1
+                # stop condition 2: reached max num iterations
+                if iter_count + 1 > self.max_iters:
+                    self._print_if_verbose('\tMaximum iteration count reached. Terminating.')
+                    break
+
+                q_prev_b = q_b
+                iter_count += 1
 
         if self.verbose:
             self._print_iter_update(iter_count, t_start, ev_q_b, ev_dq_b, iter_learning_rate, is_final=True)
