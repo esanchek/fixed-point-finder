@@ -97,9 +97,9 @@ class FixedPointFinderTF2(FixedPointFinderBase):
 
         gpu = tf.config.list_physical_devices('GPU')
         if gpu:
-            device = gpu[0].name
+            device = 'GPU:0'
         else:
-            device = tf.config.list_physical_devices('CPU')[0].name
+            device = 'CPU:0'
 
         with tf.device(device):
             inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
