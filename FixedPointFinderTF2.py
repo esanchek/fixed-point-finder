@@ -101,7 +101,7 @@ class FixedPointFinderTF2(FixedPointFinderBase):
         else:
             device = 'CPU:0'
 
-        with tf.device(device):
+        with tf.device('GPU:0'):
             inputs_bxd = tf.constant(inputs, dtype=self.tf_dtype)
             x_bxd = tf.Variable(initial_states, dtype=self.tf_dtype, trainable=True)
 
