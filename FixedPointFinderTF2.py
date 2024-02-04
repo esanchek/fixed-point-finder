@@ -118,7 +118,7 @@ class FixedPointFinderTF2(FixedPointFinderBase):
             iter_count = 1
             t_start = time.time()
 
-            print(inputs_bxd.device, x_bxd.device, q_prev_b.device)
+            # print(inputs_bxd.device, x_bxd.device, q_prev_b.device)
 
             while True:
                 with tf.GradientTape() as tape:
@@ -130,7 +130,7 @@ class FixedPointFinderTF2(FixedPointFinderBase):
                     # mean for all batch
                     q_scalar = tf.math.reduce_mean(q_b)
 
-                    print(F_x_bxd.device, dx_bxd.device, q_b.device, q_scalar.device)
+                    # print(F_x_bxd.device, dx_bxd.device, q_b.device, q_scalar.device)
 
                 # optimizer step vs joint q: q_scalar
                 grads = tape.gradient(q_scalar, [x_bxd])
