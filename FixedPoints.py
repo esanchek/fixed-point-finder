@@ -19,6 +19,8 @@ Please direct correspondence to mgolub@cs.washington.edu
 import pdb
 import numpy as np
 import pickle
+from copy import deepcopy
+
 
 class FixedPoints(object):
     '''
@@ -343,6 +345,7 @@ class FixedPoints(object):
                 else:
                     indexed_val = None
             else:
+                # print(f"mirando {attr_name}. Se quieren sacar los {index}")
                 indexed_val = self._safe_index(attr_val, index)
 
             kwargs[attr_name] = indexed_val
@@ -778,8 +781,51 @@ class FixedPoints(object):
                     cat_attr = None
                 else:
                     cat_attr = np.concatenate(cat_list, axis=0)
-
                 kwargs[attr_name] = cat_attr
+
+        return FixedPoints(**kwargs)
+
+    @staticmethod
+    def split(fps, split_attr: str, value: float):
+
+        idxs_t = np.where(getattr(fps, split_attr) <= value)
+        idxs_f = np.where(getattr(fps, split_attr) > value)
+
+        kwargs_t = {}
+        kwargs_f = {}
+
+        for attr_name in FixedPoints._nonspecific_attrs:
+            kwargs_t[attr_name] = getattr(fps, attr_name)
+            kwargs_f[attr_name] = getattr(fps, attr_name)
+
+        for attr_name in FixedPoints._data_attrs:
+
+            content = getattr(fps, attr_name)
+            if content is not None:
+                kwargs_t[attr_name] = deepcopy(content[idxs_t])
+                kwargs_f[attr_name] = deepcopy(content[idxs_f])
+            else:
+                kwargs_t[attr_name] = None
+                kwargs_f[attr_name] = None
+
+        a = FixedPoints(**kwargs_t)
+        b = FixedPoints(**kwargs_f)
+        return a, b
+
+    def sort(self, sort_attr: str):
+        content = getattr(self, sort_attr)
+        idxs = np.argsort(content)
+
+        kwargs = {}
+        for attr_name in FixedPoints._nonspecific_attrs:
+            kwargs[attr_name] = getattr(self, attr_name)
+
+        for attr_name in FixedPoints._data_attrs:
+            content = getattr(self, attr_name)
+            if content is not None:
+                kwargs[attr_name] = deepcopy(content[idxs])
+            else:
+                kwargs[attr_name] = None
 
         return FixedPoints(**kwargs)
 

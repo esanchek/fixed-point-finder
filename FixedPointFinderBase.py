@@ -756,6 +756,7 @@ class FixedPointFinderBase(object):
             fps,
             initial_states,
             self.outlier_distance_scale)
+        
         return fps[idx_keep]
 
     def _run_additional_iterations_on_outliers(self, fps):

@@ -2,27 +2,6 @@ import tensorflow as tf
 import numpy as np
 
 
-def estabilidad(eigenvals):
-    eig_1 = eigenvals[0]
-    eig_2 = eigenvals[1]
-    if eig_1.imag == 0:
-        if eig_1.real < 1:
-            return 'estable'
-        elif eig_1.real == 1:
-            return 'neutral'
-        elif eig_1.real > 1 and eig_2.real <= 1:
-            return 'saddle point'
-        else:
-            return 'unstable'
-    else:
-        if abs(eig_1) < 1:
-            return 'estable spiral focus'
-        elif abs(eig_1) == 1:
-            return 'neutral center'
-        else:
-            return 'unstable spiral focus'
-
-
 class StepLR(tf.keras.optimizers.schedules.LearningRateSchedule):
 
     def __init__(self, init_lr, step_size, gamma, verbose=0):
